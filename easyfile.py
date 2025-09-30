@@ -5,7 +5,7 @@ import calendar
 from dateutil.relativedelta import relativedelta
 
 # Замените 'YOUR_TELEGRAM_BOT_TOKEN' на ваш токен бота
-API_TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'
+API_TOKEN = '8255454287:AAGROqxH1GWUiu2kL9TmQavu-Bxtb3e791M'
 
 bot = telebot.TeleBot(API_TOKEN)
 
