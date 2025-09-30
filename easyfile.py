@@ -1,112 +1,240 @@
 import telebot
 from telebot import types
-from datetime import datetime, date
-import calendar
-from dateutil.relativedelta import relativedelta
+import os
+from PIL import Image
+import io
 
-# Замените 'YOUR_TELEGRAM_BOT_TOKEN' на ваш токен бота
-API_TOKEN = '8255454287:AAGROqxH1GWUiu2kL9TmQavu-Bxtb3e791M'
+# Токен бота (получи у @BotFather)
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
 
-bot = telebot.TeleBot(API_TOKEN)
+# Создаем экземпляр бота
+bot = telebot.TeleBot(BOT_TOKEN)
 
-# Список праздников РФ (дата: название)
-HOLIDAYS = {
-    (1, 1): "Новый год",
-    (1, 2): "Новый год (продолжение)",
-    (1, 7): "Рождество Христово",
-    (2, 23): "День защитника Отечества",
-    (3, 8): "Международный женский день",
-    (5, 1): "Праздник Весны и Труда",
-    (5, 9): "День Победы",
-    (6, 12): "День России",
-    (11, 4): "День народного единства"
-}
-
-def get_day_of_year():
-    """Возвращает номер дня в году"""
-    today = date.today()
-    day_of_year = today.timetuple().tm_yday
-    return day_of_year
-
-def get_next_holiday():
-    """Возвращает ближайший праздник и количество дней до него"""
-    today = date.today()
-    current_year = today.year
-    
-    # Создаем список всех праздников в текущем и следующем году
-    all_holidays = []
-    for year in [current_year, current_year + 1]:
-        for (month, day), name in HOLIDAYS.items():
-            holiday_date = date(year, month, day)
-            all_holidays.append((holiday_date, name))
-    
-    # Сортируем праздники по дате
-    all_holidays.sort()
-    
-    # Находим ближайший праздник (включая сегодняшний)
-    for holiday_date, name in all_holidays:
-        if holiday_date >= today:
-            days_until = (holiday_date - today).days
-            return name, holiday_date, days_until
-    
-    return "Праздники не найдены", None, 0
+# Создаем папку для временных файлов
+if not os.path.exists('temp'):
+    os.makedirs('temp')
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     """Обработчик команды /start"""
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    btn1 = types.KeyboardButton("Какой день в году")
-    btn2 = types.KeyboardButton("Ближайший праздник")
-    markup.add(btn1, btn2)
-    
-    bot.send_message(
-        message.chat.id,
-        "Привет! Я бот для работы с датами.\n"
-        "Выберите одну из опций:",
-        reply_markup=markup
-    )
+    welcome_text = """
+🤖 Привет! Я бот для конвертации изображений.
 
-@bot.message_handler(func=lambda message: message.text == "Какой день в году")
-def handle_day_of_year(message):
-    """Обработчик кнопки 'Какой день в году'"""
-    day_of_year = get_day_of_year()
-    today = date.today()
-    
-    response = (
-        f"📅 Сегодня {today.strftime('%d.%m.%Y')}\n"
-        f"📊 Это {day_of_year}-й день в году\n"
-        f"🎯 До конца года осталось {365 - day_of_year} дней"
-    )
-    
-    bot.send_message(message.chat.id, response)
+Отправь мне фото, и я преобразую его в нужный формат файла.
 
-@bot.message_handler(func=lambda message: message.text == "Ближайший праздник")
-def handle_next_holiday(message):
-    """Обработчик кнопки 'Ближайший праздник'"""
-    name, holiday_date, days_until = get_next_holiday()
-    
-    if holiday_date:
-        if days_until == 0:
-            response = f"🎉 Сегодня праздник: {name}!"
-        else:
-            response = (
-                f"📅 Ближайший праздник: {name}\n"
-                f"🗓️ Дата: {holiday_date.strftime('%d.%m.%Y')}\n"
-                f"⏳ До праздника: {days_until} дней"
+📁 Поддерживаемые форматы:
+• PNG
+• JPEG/JPG
+• BMP
+• TIFF
+• WEBP
+
+Просто отправь мне изображение!
+    """
+    bot.reply_to(message, welcome_text)
+
+@bot.message_handler(commands=['help'])
+def send_help(message):
+    """Обработчик команды /help"""
+    help_text = """
+📖 Помощь по использованию бота:
+
+1. Отправь мне любое изображение
+2. Я автоматически определю его формат
+3. Получи преобразованное изображение в нужном формате
+
+💡 Бот поддерживает конвертацию между всеми популярными форматами изображений.
+    """
+    bot.reply_to(message, help_text)
+
+@bot.message_handler(content_types=['photo'])
+def handle_photo(message):
+    """Обработчик получения фото"""
+    try:
+        # Отправляем сообщение о начале обработки
+        processing_msg = bot.reply_to(message, "🔄 Обрабатываю изображение...")
+        
+        # Получаем файл самого высокого качества
+        file_info = bot.get_file(message.photo[-1].file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        
+        # Создаем временное имя файла
+        temp_input = f"temp/input_{message.chat.id}.jpg"
+        temp_output = f"temp/output_{message.chat.id}"
+        
+        # Сохраняем исходное изображение
+        with open(temp_input, 'wb') as new_file:
+            new_file.write(downloaded_file)
+        
+        # Открываем изображение с помощью PIL
+        with Image.open(temp_input) as img:
+            # Конвертируем в RGB если нужно
+            if img.mode in ('RGBA', 'P'):
+                img = img.convert('RGB')
+            
+            # Создаем клавиатуру с выбором формата
+            markup = types.InlineKeyboardMarkup(row_width=2)
+            btn_png = types.InlineKeyboardButton('PNG', callback_data='format_png')
+            btn_jpg = types.InlineKeyboardButton('JPEG', callback_data='format_jpg')
+            btn_bmp = types.InlineKeyboardButton('BMP', callback_data='format_bmp')
+            btn_tiff = types.InlineKeyboardButton('TIFF', callback_data='format_tiff')
+            btn_webp = types.InlineKeyboardButton('WEBP', callback_data='format_webp')
+            
+            markup.add(btn_png, btn_jpg, btn_bmp, btn_tiff, btn_webp)
+            
+            # Удаляем сообщение о обработке
+            bot.delete_message(message.chat.id, processing_msg.message_id)
+            
+            # Отправляем сообщение с выбором формата
+            bot.send_message(
+                message.chat.id,
+                "📁 Выбери формат для конвертации:",
+                reply_markup=markup
             )
+            
+            # Сохраняем информацию об изображении для callback
+            img.save(f"{temp_output}_temp.jpg", "JPEG")
+            
+    except Exception as e:
+        bot.reply_to(message, f"❌ Произошла ошибка при обработке изображения: {str(e)}")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('format_'))
+def handle_format_selection(call):
+    """Обработчик выбора формата"""
+    try:
+        # Извлекаем выбранный формат
+        format_type = call.data.split('_')[1].upper()
+        
+        # Обновляем сообщение
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"🔄 Конвертирую в {format_type}..."
+        )
+        
+        temp_output = f"temp/output_{call.message.chat.id}"
+        
+        # Открываем временное изображение
+        with Image.open(f"{temp_output}_temp.jpg") as img:
+            # Создаем байтовый поток для сохранения
+            img_byte_arr = io.BytesIO()
+            
+            # Сохраняем в выбранном формате
+            if format_type == 'JPG':
+                format_type = 'JPEG'
+                img.save(img_byte_arr, format='JPEG', quality=95)
+                file_extension = 'jpg'
+            elif format_type == 'PNG':
+                img.save(img_byte_arr, format='PNG')
+                file_extension = 'png'
+            elif format_type == 'BMP':
+                img.save(img_byte_arr, format='BMP')
+                file_extension = 'bmp'
+            elif format_type == 'TIFF':
+                img.save(img_byte_arr, format='TIFF')
+                file_extension = 'tiff'
+            elif format_type == 'WEBP':
+                img.save(img_byte_arr, format='WEBP', quality=80)
+                file_extension = 'webp'
+            else:
+                img.save(img_byte_arr, format='JPEG')
+                file_extension = 'jpg'
+            
+            # Перемещаем указатель в начало
+            img_byte_arr.seek(0)
+            
+            # Отправляем файл пользователю
+            bot.send_document(
+                call.message.chat.id,
+                img_byte_arr,
+                caption=f"✅ Изображение успешно конвертировано в {format_type}",
+                visible_file_name=f"converted_image.{file_extension}"
+            )
+        
+        # Удаляем сообщение о конвертации
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        
+    except Exception as e:
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"❌ Ошибка при конвертации: {str(e)}"
+        )
+
+@bot.message_handler(content_types=['document'])
+def handle_document(message):
+    """Обработчик документов (изображений отправленных как файл)"""
+    if message.document.mime_type and message.document.mime_type.startswith('image/'):
+        try:
+            # Отправляем сообщение о начале обработки
+            processing_msg = bot.reply_to(message, "🔄 Обрабатываю изображение...")
+            
+            # Получаем файл
+            file_info = bot.get_file(message.document.file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
+            
+            # Создаем временное имя файла
+            temp_input = f"temp/input_doc_{message.chat.id}"
+            temp_output = f"temp/output_{message.chat.id}"
+            
+            # Сохраняем исходное изображение
+            with open(temp_input, 'wb') as new_file:
+                new_file.write(downloaded_file)
+            
+            # Открываем изображение с помощью PIL
+            with Image.open(temp_input) as img:
+                # Конвертируем в RGB если нужно
+                if img.mode in ('RGBA', 'P'):
+                    img = img.convert('RGB')
+                
+                # Создаем клавиатуру с выбором формата
+                markup = types.InlineKeyboardMarkup(row_width=2)
+                btn_png = types.InlineKeyboardButton('PNG', callback_data='format_png')
+                btn_jpg = types.InlineKeyboardButton('JPEG', callback_data='format_jpg')
+                btn_bmp = types.InlineKeyboardButton('BMP', callback_data='format_bmp')
+                btn_tiff = types.InlineKeyboardButton('TIFF', callback_data='format_tiff')
+                btn_webp = types.InlineKeyboardButton('WEBP', callback_data='format_webp')
+                
+                markup.add(btn_png, btn_jpg, btn_bmp, btn_tiff, btn_webp)
+                
+                # Удаляем сообщение о обработке
+                bot.delete_message(message.chat.id, processing_msg.message_id)
+                
+                # Отправляем сообщение с выбором формата
+                bot.send_message(
+                    message.chat.id,
+                    "📁 Выбери формат для конвертации:",
+                    reply_markup=markup
+                )
+                
+                # Сохраняем информацию об изображении для callback
+                img.save(f"{temp_output}_temp.jpg", "JPEG")
+                
+        except Exception as e:
+            bot.reply_to(message, f"❌ Произошла ошибка при обработке изображения: {str(e)}")
     else:
-        response = "❌ Не удалось найти информацию о праздниках"
-    
-    bot.send_message(message.chat.id, response)
+        bot.reply_to(message, "❌ Пожалуйста, отправьте изображение.")
 
 @bot.message_handler(func=lambda message: True)
 def handle_other_messages(message):
     """Обработчик всех остальных сообщений"""
-    bot.send_message(
-        message.chat.id,
-        "Пожалуйста, используйте кнопки для взаимодействия с ботом."
-    )
+    bot.reply_to(message, "📸 Отправь мне изображение для конвертации!")
 
-if __name__ == '__main__':
+def cleanup_temp_files():
+    """Очистка временных файлов (опционально)"""
+    import glob
+    temp_files = glob.glob('temp/*')
+    for file in temp_files:
+        try:
+            os.remove(file)
+        except:
+            pass
+
+if __name__ == "__main__":
     print("Бот запущен...")
-    bot.polling(none_stop=True)
+    try:
+        bot.polling(none_stop=True)
+    except Exception as e:
+        print(f"Ошибка: {e}")
+    finally:
+        cleanup_temp_files()
